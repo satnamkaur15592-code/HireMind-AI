@@ -5,7 +5,7 @@ from sklearn.preprocessing import LabelEncoder
 
 st.set_page_config(page_title="HireMind-AI | Placement Predictor", page_icon="🎓", layout="centered")
 st.title("HireMind-AI - Placement Journey")
-st.write("Jaise asli company me hota hai - 3 Round me placement hoga.")
+st.write("A 3-stage placement process - Just like a real company hiring process.")
 
 @st.cache_data
 def load_data():
@@ -46,20 +46,24 @@ def train_model(df):
 data = load_data()
 model, encoders, feature_columns, target_encoder, X_sample = train_model(data)
 
-# Step ko yaad rakhne ke liye
 if "step" not in st.session_state:
     st.session_state.step = 1
+if "resume_passed" not in st.session_state:
+    st.session_state.resume_passed = False
+if "interview_passed" not in st.session_state:
+    st.session_state.interview_passed = False
 if "resume_data" not in st.session_state:
     st.session_state.resume_data = {}
+if "interview_data" not in st.session_state:
+    st.session_state.interview_data = {}
 
-# Progress bar
 st.progress(st.session_state.step / 3)
 st.write(f"**Step {st.session_state.step} / 3**")
 
 # ================= ROUND 1 =================
 if st.session_state.step == 1:
     st.header("📄 ROUND 1: Resume Shortlisting")
-    st.write("Pehle company tera Resume dekhegi - Marks + Internship + Projects + Certificates")
+    st.write("The company will first review your resume - Academic Scores, Internships, Projects and Certifications.")
 
     user_input = {}
     for column in feature_columns:
@@ -74,12 +78,12 @@ if st.session_state.step == 1:
             user_input[column] = st.slider(f"{column}", min_value=min_v, max_value=max_v, value=avg_v)
 
     st.divider()
-    st.subheader("Resume ke extra points:")
+    st.subheader("Additional Resume Details:")
     internship = st.slider("Internship Count", 0, 5, 1)
     project = st.slider("Project Count", 0, 10, 2)
     cert = st.slider("Certification Count", 0, 10, 2)
 
-    if st.button("Check Resume Shortlist ->", use_container_width=True):
+    if st.button("Check Resume Shortlist", use_container_width=True):
         input_df = pd.DataFrame([user_input])
         pred = model.predict(input_df)[0]
         conf = model.predict_proba(input_df)[0].max() * 100
@@ -89,49 +93,66 @@ if st.session_state.step == 1:
             result = pred
         model_placed = str(result).lower() in ["1", "yes", "placed", "y"]
         resume_score = internship*10 + project*5 + cert*5
-
         st.session_state.resume_data = {"model_placed": model_placed, "conf": conf, "resume_score": resume_score}
-
         if model_placed or resume_score >= 30:
-            st.success(f"✅ CONGRATS! Resume SHORTLIST ho gaya! (Model: {conf:.1f}% | Resume Score: {resume_score})")
-            st.write("Ab tu Round 2 - Interview me ja sakti hai.")
-            if st.button("Next -> Round 2 Interview"):
-                st.session_state.step = 2
-                st.rerun()
+            st.session_state.resume_passed = True
         else:
-            st.error(f"❌ SORRY! Resume SHORTLIST nahi hua. (Model: {conf:.1f}% | Resume Score: {resume_score})")
-            st.write("Tip: Internship / Project / Certificate badhao, fir try karo.")
+            st.session_state.resume_passed = False
+
+    # Show result separately - NOT inside button, so Next button will work
+    if "conf" in st.session_state.resume_data:
+        r = st.session_state.resume_data
+        if st.session_state.resume_passed:
+            st.success(f"✅ Congratulations! Your Resume is SHORTLISTED! (Model Confidence: {r['conf']:.1f}% | Resume Score: {r['resume_score']})")
+            st.write("You are eligible for Round 2 - Interview Round.")
+        else:
+            st.error(f"❌ Sorry! Your Resume is NOT SHORTLISTED. (Model Confidence: {r['conf']:.1f}% | Resume Score: {r['resume_score']})")
+            st.write("Tip: Improve Internship / Projects / Certifications and try again.")
+
+    if st.session_state.resume_passed:
+        if st.button("Next -> Round 2 Interview", use_container_width=True):
+            st.session_state.step = 2
+            st.rerun()
 
 # ================= ROUND 2 =================
 elif st.session_state.step == 2:
     st.header("🎤 ROUND 2: Interview Round")
-    st.write("Resume clear ho gaya! Ab Interview hoga.")
+    st.write("Resume shortlisted! Now the Interview Round will be conducted.")
 
     comm = st.slider("Communication Skills (1-10)", 1, 10, 6)
     soft = st.slider("Soft Skills / Confidence (1-10)", 1, 10, 6)
     tech_skill = st.slider("Technical Skill (1-10)", 1, 10, 6)
     aptitude = st.slider("Aptitude / Coding Test Score (0-100)", 0, 100, 60)
-    tech_interview = st.selectbox("Technical Interview kaisa gaya?", ["Clear Ho Gaya", "Clear Nahi Hua"])
-    hr_interview = st.selectbox("HR Interview kaisa gaya?", ["Clear Ho Gaya", "Clear Nahi Hua"])
+    tech_interview = st.selectbox("Technical Interview Result", ["Cleared", "Not Cleared"])
+    hr_interview = st.selectbox("HR Interview Result", ["Cleared", "Not Cleared"])
+
+    if st.button("Check Interview Result", use_container_width=True):
+        interview_clear = (tech_interview == "Cleared" and hr_interview == "Cleared")
+        avg_skill = (comm + soft + tech_skill) / 3
+        st.session_state.interview_data = {"clear": interview_clear, "avg": avg_skill, "aptitude": aptitude, "comm": comm}
+        if interview_clear and avg_skill >= 5:
+            st.session_state.interview_passed = True
+        else:
+            st.session_state.interview_passed = False
+
+    if "avg" in st.session_state.interview_data:
+        i = st.session_state.interview_data
+        if st.session_state.interview_passed:
+            st.success(f"✅ Interview CLEARED! (Average Skill: {i['avg']:.1f}/10)")
+        else:
+            st.error(f"❌ Interview NOT CLEARED. Average Skill: {i['avg']:.1f}/10")
+            st.write("Please improve Communication / Technical Skills.")
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("<- Back to Round 1"):
+        if st.button("Back to Round 1"):
             st.session_state.step = 1
             st.rerun()
     with col2:
-        if st.button("Check Interview Result ->", use_container_width=True):
-            interview_clear = (tech_interview == "Clear Ho Gaya" and hr_interview == "Clear Ho Gaya")
-            avg_skill = (comm + soft + tech_skill) / 3
-            st.session_state.interview_data = {"clear": interview_clear, "avg": avg_skill, "aptitude": aptitude, "comm": comm}
-            if interview_clear and avg_skill >= 5:
-                st.success(f"✅ Interview CLEAR! (Avg Skill: {avg_skill:.1f}/10)")
-                if st.button("Next -> Final Result"):
-                    st.session_state.step = 3
-                    st.rerun()
-            else:
-                st.error(f"❌ Interview CLEAR nahi hua. Avg Skill: {avg_skill:.1f}/10")
-                st.write("Communication / Technical skill improve karo.")
+        if st.session_state.interview_passed:
+            if st.button("Next -> Final Result"):
+                st.session_state.step = 3
+                st.rerun()
 
 # ================= ROUND 3 =================
 elif st.session_state.step == 3:
@@ -140,19 +161,23 @@ elif st.session_state.step == 3:
     i = st.session_state.get("interview_data", {})
 
     st.write(f"📄 **Round 1 Resume:** Shortlisted (Confidence: {r.get('conf',0):.1f}%)")
-    st.write(f"🎤 **Round 2 Interview:** {'Clear' if i.get('clear') else 'Not Clear'} (Avg Skill: {i.get('avg',0):.1f}/10 | Aptitude: {i.get('aptitude',0)})")
+    st.write(f"🎤 **Round 2 Interview:** {'Cleared' if i.get('clear') else 'Not Cleared'} (Average Skill: {i.get('avg',0):.1f}/10 | Aptitude: {i.get('aptitude',0)})")
 
     st.divider()
     if r.get("model_placed") and i.get("clear"):
-        st.success("🎉 FINAL RESULT: PLACED! Tumhe job mil gayi!")
+        st.success("🎉 FINAL RESULT: PLACED! Congratulations, you got the job!")
         st.balloons()
     elif i.get("clear") and not r.get("model_placed"):
-        st.warning("⚠️ FINAL RESULT: BORDERLINE PLACED - Interview clear hai, par academic thoda weak tha. Company soch rahi hai.")
+        st.warning("⚠️ FINAL RESULT: BORDERLINE PLACED - Interview is cleared, but academic score is slightly low. Company is still considering.")
     else:
-        st.error("❌ FINAL RESULT: NOT PLACED - Koi ek round me atak gaye.")
+        st.error("❌ FINAL RESULT: NOT PLACED - One of the rounds was not cleared.")
 
-    if st.button("🔄 Naya Student Check Karo - Start Again"):
+    if st.button("🔄 Check for New Student - Start Again"):
         st.session_state.step = 1
+        st.session_state.resume_passed = False
+        st.session_state.interview_passed = False
+        st.session_state.resume_data = {}
+        st.session_state.interview_data = {}
         st.rerun()
 
 st.divider()
