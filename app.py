@@ -10,10 +10,7 @@ st.set_page_config(
 )
 
 st.title("HireMind-AI - Placement Predictor")
-st.write(
-    "Enter the student's academic details below. "
-    "The AI model will predict whether the student is likely to be placed."
-)
+st.write("Enter the student's academic details below. The AI model will predict whether the student is likely to be placed.")
 
 @st.cache_data
 def load_data():
@@ -24,46 +21,53 @@ def load_data():
 @st.cache_resource
 def train_model(df):
     target_column = df.columns[-1]
+    y_raw = df[target_column].copy()
 
-    # Drop ID / Name columns - they are not useful for prediction
-    # Example: Student ID like STU001, Name, etc.
-    drop_cols = []
-    for col in df.columns:
+    # Features = all columns except last one
+    X = df.drop(columns=[target_column]).copy()
+
+    # STEP 1: Drop ID-like columns - Student ID, Roll No, anything with too many unique values
+    cols_to_drop = []
+    for col in X.columns:
         low = col.lower()
-        if "id" in low or "name" in low:
-            drop_cols.append(col)
+        # Name / ID in column name
+        if "id" in low or "name" in low or "roll" in low or "student" in low and "id" in low:
+            cols_to_drop.append(col)
+        # OR if column has STU001 type values - too many unique text values = ID
+        elif X[col].dtype == "object" and X[col].nunique() > 30:
+            cols_to_drop.append(col)
 
-    df_clean = df.drop(columns=drop_cols, errors="ignore")
-    feature_columns = [c for c in df_clean.columns if c != target_column]
+    X = X.drop(columns=cols_to_drop, errors="ignore")
 
-    X = df_clean[feature_columns].copy()
-    y = df_clean[target_column].copy()
-
-    # Encode categorical features
+    # STEP 2: Convert EVERY column to number, forcefully
     encoders = {}
-    for column in X.columns:
-        if X[column].dtype == "object":
-            encoder = LabelEncoder()
-            X[column] = encoder.fit_transform(X[column].astype(str))
-            encoders[column] = encoder
+    for col in X.columns:
+        # Try to make it numeric first
+        numeric_try = pd.to_numeric(X[col], errors="coerce")
+        # If most values became numbers, use numeric
+        if numeric_try.notna().sum() > len(X) * 0.5:
+            X[col] = numeric_try.fillna(numeric_try.mean())
         else:
-            # Force numeric columns to numbers
-            X[column] = pd.to_numeric(X[column], errors="coerce")
-            X[column] = X[column].fillna(X[column].mean())
+            # Otherwise it's text like Male/Female, Yes/No - encode it
+            le = LabelEncoder()
+            X[col] = le.fit_transform(X[col].astype(str))
+            encoders[col] = le
 
-    # Encode target
+    # STEP 3: Target also to number
     target_encoder = None
-    if y.dtype == "object":
+    if y_raw.dtype == "object":
         target_encoder = LabelEncoder()
-        y = target_encoder.fit_transform(y.astype(str))
+        y = target_encoder.fit_transform(y_raw.astype(str))
+    else:
+        y = pd.to_numeric(y_raw, errors="coerce").fillna(0)
 
     model = RandomForestClassifier(random_state=42)
     model.fit(X, y)
 
-    return model, encoders, feature_columns, target_encoder, df_clean
+    return model, encoders, list(X.columns), target_encoder, X
 
 data = load_data()
-model, encoders, feature_columns, target_encoder, df_clean = train_model(data)
+model, encoders, feature_columns, target_encoder, X_sample = train_model(data)
 
 st.subheader("Enter Student Details")
 
@@ -71,18 +75,14 @@ user_input = {}
 for column in feature_columns:
     if column in encoders:
         options = list(encoders[column].classes_)
-        selected_value = st.selectbox(f"{column}", options)
-        user_input[column] = encoders[column].transform([selected_value])[0]
+        selected = st.selectbox(f"{column}", options)
+        user_input[column] = encoders[column].transform([selected])[0]
     else:
-        min_value = float(df_clean[column].min())
-        max_value = float(df_clean[column].max())
-        average_value = float(df_clean[column].mean())
-        user_input[column] = st.slider(
-            f"{column}",
-            min_value=min_value,
-            max_value=max_value,
-            value=average_value
-        )
+        min_v = float(X_sample[column].min())
+        max_v = float(X_sample[column].max())
+        avg_v = float(X_sample[column].mean())
+        # If CGPA type small range, slider fine
+        user_input[column] = st.slider(f"{column}", min_value=min_v, max_value=max_v, value=avg_v)
 
 if st.button("Predict Placement", use_container_width=True):
     input_df = pd.DataFrame([user_input])
